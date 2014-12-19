@@ -1,0 +1,301 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+    <link rel="stylesheet" href="map/theme/default/style.css" type="text/css">
+    <style type="text/css">
+        html, body {
+            margin: 0;
+            height: 100%;
+            width: 100%;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        #toolbar {
+            /*display: none;*/
+            position: absolute;
+            left: 50px;
+            top: 1px;
+            background: #fff;
+            padding: 5px;
+            z-index: 999;
+        }
+
+        #wrapper {
+            /*display: none;*/
+            position: absolute;
+            right: 50px;
+            top: 1px;
+            background: #fff;
+            padding: 5px;
+            z-index: 999
+        }
+
+        div.olControlMousePosition {
+            font-size: 20pt;
+            color: #000;
+        }
+    </style>
+    <script type="text/javascript" src="map/OpenLayers.js"></script>
+    <script type="text/javascript">
+
+        var tileUrl = 'map/tile';
+
+        function pad(num, n) {
+            var len = num.toString().length;
+            while (len < n) {
+                num = "0" + num;
+                len++;
+            }
+            return num;
+        }
+
+        function get_tile_url(bounds) {
+            var res = this.map.getResolution();
+
+            var x = Math.round((bounds.left - this.maxExtent.left)
+            / (res * this.tileSize.w));
+            var y = Math.round((this.maxExtent.top - bounds.top)
+            / (res * this.tileSize.h));
+
+            var z = this.map.getZoom();
+            //var temp = Math.pow(2, z + 1);
+            //var m = y * temp + x + 1;
+            //console.log(this.maxExtent,res,bounds,x,y,m);
+            var path = "/" + z + "/map_" + pad(y,4) + "_" + pad(x,4) + "." + this.type;
+            var url = this.url;
+            if (url instanceof Array) {
+                url = this.selectUrl(path, url);
+            }
+            return url + path;
+        }
+
+
+        var map, measureControls;
+        var markers;
+
+
+        function init() {
+            var projection = 'EPSG:4326';
+            map = new OpenLayers.Map('map', {
+                maxExtent: new OpenLayers.Bounds(0, 0, 20480, 10240),
+                numZoomLevels: 5,
+                maxResolution: 20,
+                units: 'ft',
+                projection: projection,
+                displayProjection: new OpenLayers.Projection(projection),
+                controls: [
+                    new OpenLayers.Control.PanZoomBar(),
+                    new OpenLayers.Control.Navigation(),
+                    new OpenLayers.Control.ScaleLine(),
+                    new OpenLayers.Control.MousePosition()
+                ]
+            });
+
+
+            var baseLayer = new OpenLayers.Layer.TMS("Name", tileUrl, {type: 'jpg', getURL: get_tile_url});
+
+            map.addLayers([baseLayer]);
+
+//            map.setCenter([10240, 5120], 4);
+            map.setCenter([9322, 3570], 0);
+            // 注册map点击事件
+            map.events.register("click", map, onMapClick);
+
+
+            // style the sketch fancy
+            var sketchSymbolizers = {
+                "Point": {
+                    pointRadius: 4,
+                    graphicName: "square",
+                    fillColor: "white",
+                    fillOpacity: 1,
+                    strokeWidth: 1,
+                    strokeOpacity: 1,
+                    strokeColor: "#333333"
+                },
+                "Line": {
+                    strokeWidth: 3,
+                    strokeOpacity: 1,
+                    strokeColor: "#ffffff"
+                },
+                "Polygon": {
+                    strokeWidth: 2,
+                    strokeOpacity: 1,
+                    strokeColor: "#ffffff",
+                    fillColor: "white",
+                    fillOpacity: 0.3
+                }
+            };
+            var style = new OpenLayers.Style();
+            style.addRules([
+                new OpenLayers.Rule({symbolizer: sketchSymbolizers})
+            ]);
+            var styleMap = new OpenLayers.StyleMap({"default": style});
+
+            // allow testing of specific renderers via "?renderer=Canvas", etc
+            var renderer = OpenLayers.Util.getParameters(window.location.href).renderer;
+            renderer = (renderer) ? [renderer] : OpenLayers.Layer.Vector.prototype.renderers;
+
+            measureControls = {
+                line: new OpenLayers.Control.Measure(
+                        OpenLayers.Handler.Path, {
+                            persist: true,
+                            handlerOptions: {
+                                layerOptions: {
+                                    renderers: renderer,
+                                    styleMap: styleMap
+                                }
+                            }
+                        }
+                ),
+                polygon: new OpenLayers.Control.Measure(
+                        OpenLayers.Handler.Polygon, {
+                            persist: true,
+                            handlerOptions: {
+                                layerOptions: {
+                                    renderers: renderer,
+                                    styleMap: styleMap
+                                }
+                            }
+                        }
+                )
+            };
+
+            var control;
+            for (var key in measureControls) {
+                control = measureControls[key];
+                control.events.on({
+                    "measure": handleMeasurements,
+                    "measurepartial": handleMeasurements
+                });
+                map.addControl(control);
+            }
+
+            markers = new OpenLayers.Layer.Markers("Markers");
+            map.addLayer(markers);
+        }
+
+        //测距、面积
+        function handleMeasurements(event) {
+
+            var geometry = event.geometry;
+            var units = event.units;
+            var order = event.order;
+            var measure = event.measure;
+            var element = document.getElementById('output');
+            var out = "";
+            if (order == 1) {
+                out += "measure: " + measure.toFixed(2) + " " + units;
+            } else {
+                out += "measure: " + measure.toFixed(2) + " " + units + "<sup>2</" + "sup>";
+            }
+            element.innerHTML = out;
+        }
+
+        function toggleControl(_value) {
+            for (key in measureControls) {
+                var control = measureControls[key];
+                if (_value == key) {
+                    control.activate();
+                } else {
+                    control.deactivate();
+                }
+            }
+        }
+
+
+        function onMapClick(e) {
+            //alert('click');
+            // 显示地图屏幕坐标
+            var str = "[Screen]:" + e.xy.x + "," + e.xy.y;
+            document.getElementById("screen_xy").innerHTML = str;
+            // 屏幕坐标向地图坐标的转换
+            var lonlat = map.getLonLatFromViewPortPx(e.xy);
+            str = "[Map]:" + lonlat.lon + "," + lonlat.lat;
+            document.getElementById("location").innerHTML = str;
+            //生成点图层
+        }
+
+        //缩小
+        function zoomOut() {
+            map.zoomOut();
+        }
+        //放大
+        function zoomIn() {
+            map.zoomIn();
+        }
+        //获取地图数据
+        function getSize() {
+            alert(map.getSize() + ",高度为=" + map.getSize().h);
+        }
+
+        /*******************多边形获取经纬度坐标系*************************/
+        function test() {
+            var getpolygonxy = new OpenLayers.Control();
+            OpenLayers.Util.extend(getpolygonxy, {
+                draw: function () {
+                    this.polygon = new OpenLayers.Handler.Polygon(getpolygonxy,
+                            {"done": this.notice}, {"persist": true},
+                            {keyMask: OpenLayers.Handler.MOD_SHIFT});
+                    this.polygon.activate();
+                },
+                notice: function (bounds) {
+                    alert(bounds);//坐标信息
+                }
+            });
+            map.addControl(getpolygonxy);
+        }
+
+        //显示标注
+        var marker1;
+        function addMarker() {
+            var url = 'map/img/marker.png';
+            var sz = new OpenLayers.Size(21, 25);  //尺寸大小
+            var calculateOffset = function (size) {
+                return new OpenLayers.Pixel(-(size.w / 2), -size.h);
+            };
+            var icon = new OpenLayers.Icon(url, sz, null, calculateOffset);
+
+            marker1 = new OpenLayers.Marker(map.getCenter(), icon);
+            markers.addMarker(marker1);
+
+            // marker = new OpenLayers.Marker(madrid, icon.clone());
+            // markers.addMarker(marker);
+        }
+        function removeMarker() {
+            markers.removeMarker(marker1);
+        }
+
+
+    </script>
+</head>
+<body onload="init()">
+<div id="toolbar">
+    <input type="button" value="放大" onclick="zoomIn()"/>
+    <input type="button" value="缩小" onclick="zoomOut()"/>
+    <input type="button" value="获取地图大小" onclick="getSize()"/>
+    <input type="button" value="平移" onclick="toggleControl('none')"/>
+    <input type="button" value="线路测量" onclick="toggleControl('line')"/>
+    <input type="button" value="测量面积" onclick="toggleControl('polygon')"/>
+
+    <input type="button" value="显示标注" onclick="addMarker()"/>
+    <input type="button" value="移除标注" onclick="removeMarker()"/>
+    <input type="button" value="画多边形获取经纬度坐标" onclick="test()"/>
+
+</div>
+<div id="wrapper">
+    <div id="screen_xy"></div>
+    <div id="location"></div>
+    <div id="scale"></div>
+    <div id="output"></div>
+</div>
+<div id='map'></div>
+
+</body>
+</html>
+
